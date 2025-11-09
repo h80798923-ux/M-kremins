@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anonim Chat</title>
+<style>
+  body, html {
+    margin:0; padding:0; height:100%; width:100%;
+    font-family: Arial, sans-serif;
+    overflow:hidden;
+    transition: background 0.3s, color 0.3s;
+  }
+
+  body.dark { background:#0f0f0f; color:#fff; }
+  body.light { background:#f0f0f0; color:#000; }
+  body.neon { background:#000; color:#39ff14; }
+
+  canvas { position:absolute; top:0; left:0; width:100%; height:100%; z-index:0; }
+
+  #chatContainer {
+    position:relative;
+    z-index:1;
+    display:flex; flex-direction:column;
+    height:100%; padding:10px;
+  }
+
+  #messages {
+    flex:1; overflow-y:auto; padding:10px;
+    display:flex; flex-direction:column; gap:8px;
+  }
+
+  .msg {
+    max-width:80%;
+    padding:10px 16px;
+    border-radius:20px;
+    word-wrap:break-word;
+    animation: fadeIn 0.2s ease-in;
+    background:#222;
+    color:white;
+    position:relative;
+  }
+
+  .msg.self { align-self:flex-end; background:#0066ff; }
+  .msg.other { align-self:flex-start; background:#444; }
+
+  .msg span.delBtn {
+    cursor:pointer;
+    margin-left:8px;
+    font-weight:bold;
+    color:red;
+  }
+
+  @keyframes fadeIn { from {opacity:0; transform:translateY(5px);} to {opacity:1; transform:translateY(0);} }
+
+  #inputBox {
+    display:flex; padding:10px; gap:8px;
+    background: rgba(30,30,30,0.8); border-radius:20px;
+  }
+
+  #msgInput {
+    flex:1; padding:10px; border:none; border-radius:20px; outline:none;
+    background:#2a2a2a; color:white;
+  }
+
+  #sendBtn {
+    background:#0066ff; color:white; border:none;
+    padding:10px 16px; border-radius:20px; cursor:pointer;
+  }
+
+  #sendBtn:hover { background:#0050d4; }
+
+  #topBar {
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom:10px;
+  }
+
+  #profileImg {
+    width:40px; height:40px; border-radius:50%; cursor:pointer; object-fit:cover; border:2px solid #fff;
+  }
+
+  #themeSelect { padding:5px; border-radius:10px; border:none; }
+</style>
+</head>
+<body class="dark">
+<canvas id="stars"></canvas>
+
+<div id="chatContainer">
+  <div id="topBar">
+    <img id="profileImg" src="" alt="Profil">
+    <select id="themeSelect">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="neon">Neon</option>
+    </select>
+  </div>
+
+  <div id="messages"></div>
+
+  <div id="inputBox">
+    <input id="msgInput" type="text" placeholder="Mesajını yaz...">
+    <button id="sendBtn">Gönder</button>
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-app.js";
+  import { getDatabase, ref, push, onValue, remove } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyB0hUkrqiHCkN1bkWOxY-uQm2gBW0VtHEE",
+    authDomain: "anonimchat-1d052.firebaseapp.com",
+    projectId: "anonimchat-1d052",
+    storageBucket: "anonimchat-1d052.appspot.com",
+    messagingSenderId: "756768126527",
+    appId: "1:756768126527:web:17cdbab3d5c4f554572a8a"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+  const msgsRef = ref(db, "messages");
+
+  // Profil resmi ve tema
+  const profileImg = document.getElementById("profileImg");
+  const themeSelect = document.getElementById("themeSelect");
+  if(localStorage.getItem("profileImg")) profileImg.src = localStorage.getItem("profileImg");
+  else profileImg.src="https://via.placeholder.com/40";
+
+  profileImg.addEventListener("click", ()=> {
+    const url = prompt("Profil fotoğrafı URL gir:");
+    if(url){ profileImg.src=url; localStorage.setItem("profileImg", url); }
+  });
+
+  if(localStorage.getItem("theme")){
+    document.body.className = localStorage.getItem("theme");
+    themeSelect.value = localStorage.getItem("theme");
+  }
+
+  themeSelect.addEventListener("change", ()=>{
+    document.body.className = themeSelect.value;
+    localStorage.setItem("theme", themeSelect.value);
+  });
+
+  // Benzersiz anonim ID
+  let anonId = localStorage.getItem("anonId");
+  if(!anonId){
+    anonId = "id_" + Math.random().toString(36).substr(2,9);
+    localStorage.setItem("anonId", anonId);
+  }
+
+  const msgInput = document.getElementById("msgInput");
+  const sendBtn = document.getElementById("sendBtn");
+  const messagesDiv = document.getElementById("messages");
+
+  function addMessage(msgObj){
+    const div = document.createElement("div");
+    div.className = "msg " + (msgObj.anonId===anonId ? "self" : "other");
+    div.textContent = "Anonim: " + msgObj.msg;
+
+    if(msgObj.anonId===anonId){
+      const delBtn = document.createElement("span");
+      delBtn.textContent = " ❌";
+      delBtn.className="delBtn";
+      delBtn.onclick = ()=>{
+        if(confirm("Mesajı silmek istediğine emin misin?")){
+          remove(ref(db, "messages/" + msgObj.key));
+        }
+      };
+      div.appendChild(delBtn);
+    }
+
+    messagesDiv.appendChild(div);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  }
+
+  sendBtn.addEventListener("click", ()=>{
+    if(msgInput.value.trim()=="") return;
+    push(msgsRef, { msg: msgInput.value, anonId });
+    msgInput.value="";
+  });
+
+  msgInput.addEventListener("keyup", (e)=>{ if(e.key==="Enter") sendBtn.click(); });
+
+  onValue(msgsRef, (snapshot)=>{
+    messagesDiv.innerHTML="";
+    snapshot.forEach((child)=>{
+      const data = child.val();
+      data.key = child.key;
+      addMessage(data);
+    });
+  });
+
+  // Yıldız animasyonu
+  const canvas = document.getElementById("stars");
+  const ctx = canvas.getContext("2d");
+  let stars = [];
+  const starCount = 100;
+
+  function resizeCanvas(){ canvas.width=window.innerWidth; canvas.height=window.innerHeight; }
+  window.addEventListener("resize", resizeCanvas);
+  resizeCanvas();
+
+  for(let i=0;i<starCount;i++){
+    stars.push({x:Math.random()*canvas.width, y:Math.random()*canvas.height, r:Math.random()*2+1, d:Math.random()*0.5});
+  }
+
+  function drawStars(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle="white";
+    for(let s of stars){
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  function updateStars(){
+    for(let s of stars){
+      s.y += s.d;
+      if(s.y>canvas.height){ s.y=0; s.x=Math.random()*canvas.width; }
+    }
+  }
+
+  function loop(){ drawStars(); updateStars(); requestAnimationFrame(loop); }
+  loop();
+
+</script>
+</body>
+</html>
